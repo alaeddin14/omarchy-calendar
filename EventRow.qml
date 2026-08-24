@@ -31,10 +31,9 @@ Rectangle {
   // over-and-done meeting is not a refused one.
   property bool dimmed: false
 
-  // A range such as "09:00 - 10:30" needs more room than the old start-only
-  // label. It also keeps "All day" inside its own box instead of letting the
-  // glyphs run into the title.
-  readonly property real timeWidth: Style.space(92)
+  // Wide enough for "All day" with breathing room. Timed events stack their
+  // end below their start instead of taking title space for a horizontal range.
+  readonly property real timeWidth: Style.space(56)
 
   signal joinRequested(var event)
   signal openRequested(var event)
@@ -132,30 +131,43 @@ Rectangle {
 
   Rectangle {
     width: Style.space(2)
-    height: eventLines.height
+    height: Math.max(eventTimes.height, eventLines.height)
     radius: width / 2
     color: eventRow.declined
       ? Qt.darker(eventRow.modelData.color, 2.2)
       : eventRow.modelData.color
   }
 
-  Text {
+  Column {
+    id: eventTimes
     width: eventRow.timeWidth
-    text: {
-      if (eventRow.modelData.allDay) return qsTr("All day")
+    spacing: Style.space(1)
 
-      var start = new Date(eventRow.modelData.start)
-      var startText = Qt.formatDateTime(start, "HH:mm")
-      var end = new Date(eventRow.modelData.end)
-      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end.getTime() <= start.getTime())
-        return startText
+    readonly property var startDate: new Date(eventRow.modelData.start)
+    readonly property var endDate: new Date(eventRow.modelData.end)
+    readonly property bool hasEnd: !eventRow.modelData.allDay
+      && !isNaN(startDate.getTime())
+      && !isNaN(endDate.getTime())
+      && endDate.getTime() > startDate.getTime()
 
-      return startText + " - " + Qt.formatDateTime(end, "HH:mm")
+    Text {
+      text: eventRow.modelData.allDay
+        ? qsTr("All day")
+        : Qt.formatDateTime(eventTimes.startDate, "h:mm AP")
+      color: Qt.darker(eventRow.foreground, eventRow.declined ? 2.2 : 1.5)
+      font.family: eventRow.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.strikeout: eventRow.declined
     }
-    color: Qt.darker(eventRow.foreground, eventRow.declined ? 2.2 : 1.5)
-    font.family: eventRow.fontFamily
-    font.pixelSize: Style.font.bodySmall
-    font.strikeout: eventRow.declined
+
+    Text {
+      visible: eventTimes.hasEnd
+      text: visible ? Qt.formatDateTime(eventTimes.endDate, "h:mm AP") : ""
+      color: Qt.darker(eventRow.foreground, eventRow.declined ? 2.2 : 1.9)
+      font.family: eventRow.fontFamily
+      font.pixelSize: Style.font.caption
+      font.strikeout: eventRow.declined
+    }
   }
 
   Column {

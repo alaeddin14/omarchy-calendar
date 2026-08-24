@@ -196,6 +196,7 @@ handful of events instead: all of today, then the days that follow until it has
 as many as you asked for. Today is never cut short, so a day holding more than
 the count shows all of it — and events that have already finished stay on the
 list, dimmed, rather than disappearing out from under you as the day goes on.
+Timed events show both ends of their range, such as `09:00 - 10:30`.
 
 The grid still works. Click any other day and you get that day on its own, the
 way you always did; click today, click the big date, or press `t` to come back

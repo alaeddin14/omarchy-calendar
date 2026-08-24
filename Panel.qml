@@ -318,6 +318,7 @@ Panel {
   function goToToday() {
     root.viewYear = today.getFullYear()
     root.viewMonth = today.getMonth()
+    root.selectedDayKey = root.todayKey
   }
 
   function moveMonth(delta) {
@@ -566,7 +567,7 @@ Panel {
               y: heroRow.y
               width: heroRow.width
               height: heroRow.height
-              enabled: !root.viewingCurrentMonth
+              enabled: !root.viewingCurrentMonth || root.selectedDayKey !== root.todayKey
               hoverEnabled: enabled
               cursorShape: Qt.PointingHandCursor
               onClicked: root.goToToday()

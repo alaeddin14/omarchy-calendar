@@ -528,15 +528,21 @@ function shouldAnnounce(event, nowMs, leadMinutes) {
 // new Date("2026-08-10") is UTC midnight and lands on the previous day for
 // anyone west of Greenwich.
 function dateFromKey(dateKey, fallback) {
-  var parts = String(dateKey || "").split("-")
-  if (parts.length !== 3) return fallback
+  var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ""))
+  if (!match) return fallback
 
-  var year = parseInt(parts[0], 10)
-  var month = parseInt(parts[1], 10)
-  var day = parseInt(parts[2], 10)
-  if (isNaN(year) || isNaN(month) || isNaN(day)) return fallback
+  var year = parseInt(match[1], 10)
+  var month = parseInt(match[2], 10)
+  var day = parseInt(match[3], 10)
+  var date = new Date(year, month - 1, day)
 
-  return new Date(year, month - 1, day)
+  // Date normalises impossible values such as February 31 into March. A key
+  // is an identity, so accepting that would silently assign an event to a
+  // different day.
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day)
+    return fallback
+
+  return date
 }
 
 function eventColors(index, dateKey, limit) {
@@ -674,7 +680,10 @@ function hasEnded(event, nowMs) {
   if (event.allDay) {
     var day = dateFromKey(event.dateKey, null)
     if (!day) return false
-    return nowMs >= day.getTime() + DAY_MS
+    // Calendar arithmetic, not 24 elapsed hours: a local day can be 23 or 25
+    // hours when daylight saving time changes.
+    var nextDay = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+    return nowMs >= nextDay.getTime()
   }
 
   var startMs = Date.parse(event.start)

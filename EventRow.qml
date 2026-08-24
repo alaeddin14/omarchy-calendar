@@ -31,6 +31,11 @@ Rectangle {
   // over-and-done meeting is not a refused one.
   property bool dimmed: false
 
+  // A range such as "09:00 - 10:30" needs more room than the old start-only
+  // label. It also keeps "All day" inside its own box instead of letting the
+  // glyphs run into the title.
+  readonly property real timeWidth: Style.space(92)
+
   signal joinRequested(var event)
   signal openRequested(var event)
 
@@ -44,6 +49,7 @@ Rectangle {
 
   height: eventBody.height + Style.space(2)
   radius: Style.cornerRadius
+  opacity: eventRow.dimmed ? 0.45 : 1.0
   color: eventHover.hovered
     ? Qt.rgba(eventRow.foreground.r, eventRow.foreground.g,
               eventRow.foreground.b, 0.08)
@@ -101,7 +107,6 @@ Rectangle {
     anchors.rightMargin: eventRow.joinable ? Style.space(3) : 0
     anchors.verticalCenter: parent.verticalCenter
     spacing: Style.space(4)
-    opacity: eventRow.dimmed ? 0.45 : 1.0
 
     // Deliberately here and not on the row: this stops at the
     // Join button's left edge, so the two hit areas cannot
@@ -135,10 +140,18 @@ Rectangle {
   }
 
   Text {
-    width: Style.space(44)
-    text: eventRow.modelData.allDay
-      ? qsTr("All day")
-      : Qt.formatDateTime(new Date(eventRow.modelData.start), "HH:mm")
+    width: eventRow.timeWidth
+    text: {
+      if (eventRow.modelData.allDay) return qsTr("All day")
+
+      var start = new Date(eventRow.modelData.start)
+      var startText = Qt.formatDateTime(start, "HH:mm")
+      var end = new Date(eventRow.modelData.end)
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || end.getTime() <= start.getTime())
+        return startText
+
+      return startText + " - " + Qt.formatDateTime(end, "HH:mm")
+    }
     color: Qt.darker(eventRow.foreground, eventRow.declined ? 2.2 : 1.5)
     font.family: eventRow.fontFamily
     font.pixelSize: Style.font.bodySmall
@@ -147,7 +160,7 @@ Rectangle {
 
   Column {
     id: eventLines
-    width: eventBody.width - Style.space(54)
+    width: eventBody.width - eventRow.timeWidth - Style.space(10)
       - (eventRow.gutterWidth > 0 ? eventRow.gutterWidth + Style.space(4) : 0)
     spacing: Style.space(1)
 

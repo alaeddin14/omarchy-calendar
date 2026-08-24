@@ -117,6 +117,12 @@ test('dateFromKey returns the fallback for non-numeric parts', () => {
   assert.equal(Model.dateFromKey('yyyy-mm-dd', fallback), fallback)
 })
 
+test('dateFromKey rejects impossible and loosely formatted dates', () => {
+  assert.equal(Model.dateFromKey('2026-02-31', null), null)
+  assert.equal(Model.dateFromKey('2026-2-03', null), null)
+  assert.equal(Model.dateFromKey('2026-02-03extra', null), null)
+})
+
 const DOC = {
   version: 1,
   events: [
@@ -570,6 +576,19 @@ test('hasEnded treats an all-day event as over only once its day is', () => {
   assert.equal(Model.hasEnded(holiday, new Date(2026, 7, 25, 0, 1).getTime()), true)
 })
 
+test('hasEnded uses the next local midnight across daylight saving time', () => {
+  const originalTimezone = process.env.TZ
+  try {
+    process.env.TZ = 'America/New_York'
+    const springForward = { dateKey: '2026-03-08', allDay: true, title: 'Holiday' }
+    assert.equal(Model.hasEnded(springForward, new Date(2026, 2, 8, 23, 59).getTime()), false)
+    assert.equal(Model.hasEnded(springForward, new Date(2026, 2, 9, 0, 1).getTime()), true)
+  } finally {
+    if (originalTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = originalTimezone
+  }
+})
+
 test('hasEnded falls back to the start when the end is missing or backwards', () => {
   const noEnd = { title: 'Ping', start: localIso(2026, 8, 24, 9) }
   const backwards = { title: 'Ping', start: localIso(2026, 8, 24, 9), end: localIso(2026, 8, 24, 8) }
@@ -583,5 +602,6 @@ test('hasEnded falls back to the start when the end is missing or backwards', ()
 test('hasEnded never claims an unreadable event has ended', () => {
   assert.equal(Model.hasEnded({ title: 'Broken', start: 'nope' }, Date.now()), false)
   assert.equal(Model.hasEnded({ allDay: true, dateKey: 'nope' }, Date.now()), false)
+  assert.equal(Model.hasEnded({ allDay: true, dateKey: '2026-02-31' }, Date.now()), false)
   assert.equal(Model.hasEnded(null, Date.now()), false)
 })

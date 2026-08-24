@@ -21,6 +21,8 @@ Column {
   property bool showWorkingLocation: false
   property bool hideDeclined: false
   property int announceLeadMinutes: 15
+  property bool agendaView: false
+  property int agendaCount: 10
 
   property string syncedAt: ""
   property string sourceLabel: ""
@@ -35,6 +37,8 @@ Column {
   signal workingLocationToggled()
   signal hideDeclinedToggled()
   signal leadMinutesPicked(int minutes)
+  signal agendaViewToggled()
+  signal agendaCountPicked(int count)
   signal setupCommandCopyRequested()
 
   readonly property color muted: Qt.darker(foreground, 1.5)
@@ -128,6 +132,57 @@ Column {
     }
   }
 
+  // One value out of a handful. Generalised from the announce-lead chips
+  // rather than added beside them, so the two rows cannot drift apart.
+  component ChipRow: Row {
+    id: chips
+
+    property var values: []
+    property var current: null
+    // Off draws the row faded and stops it responding, for a setting that
+    // only means something while something else is on.
+    property bool live: true
+    property var labelFor: function(value) { return String(value) }
+
+    signal picked(var value)
+
+    spacing: Style.space(3)
+    opacity: live ? 1.0 : 0.4
+
+    Repeater {
+      model: chips.values
+
+      Rectangle {
+        required property var modelData
+
+        readonly property bool selected: modelData === chips.current
+
+        width: chipLabel.width + Style.space(8)
+        height: chipLabel.height + Style.space(4)
+        radius: height / 2
+        color: selected
+          ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
+          : "transparent"
+        border.width: Style.spacing.hairline
+        border.color: selected ? root.muted : Qt.darker(root.foreground, 2.4)
+
+        Text {
+          id: chipLabel
+          anchors.centerIn: parent
+          text: chips.labelFor(modelData)
+          color: selected ? root.foreground : root.faint
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        TapHandler {
+          enabled: chips.live
+          onTapped: chips.picked(modelData)
+        }
+      }
+    }
+  }
+
   // ---- Calendars
 
   SectionTitle { text: qsTr("CALENDARS") }
@@ -189,6 +244,33 @@ Column {
     onActivated: root.yearProgressToggled()
   }
 
+  // ---- Agenda
+
+  SectionTitle { text: qsTr("AGENDA") }
+
+  ToggleRow {
+    label: qsTr("Agenda view")
+    hint: qsTr("What is coming up, instead of the day you picked")
+    checked: root.agendaView
+    onActivated: root.agendaViewToggled()
+  }
+
+  Text {
+    width: parent.width
+    text: qsTr("How many events to list. Today is shown in full even when it runs over.")
+    color: root.faint
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    wrapMode: Text.WordWrap
+  }
+
+  ChipRow {
+    values: [5, 10, 15, 25]
+    current: root.agendaCount
+    live: root.agendaView
+    onPicked: function(value) { root.agendaCountPicked(value) }
+  }
+
   // ---- Bar
 
   SectionTitle { text: qsTr("BAR LABEL") }
@@ -202,38 +284,11 @@ Column {
     wrapMode: Text.WordWrap
   }
 
-  Row {
-    spacing: Style.space(3)
-
-    Repeater {
-      model: [0, 5, 15, 30, 60]
-
-      Rectangle {
-        required property var modelData
-
-        readonly property bool active: modelData === root.announceLeadMinutes
-
-        width: leadLabel.width + Style.space(8)
-        height: leadLabel.height + Style.space(4)
-        radius: height / 2
-        color: active
-          ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.14)
-          : "transparent"
-        border.width: Style.spacing.hairline
-        border.color: active ? root.muted : Qt.darker(root.foreground, 2.4)
-
-        Text {
-          id: leadLabel
-          anchors.centerIn: parent
-          text: modelData === 0 ? qsTr("Never") : modelData + qsTr("min")
-          color: active ? root.foreground : root.faint
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-
-        TapHandler { onTapped: root.leadMinutesPicked(modelData) }
-      }
-    }
+  ChipRow {
+    values: [0, 5, 15, 30, 60]
+    current: root.announceLeadMinutes
+    labelFor: function(value) { return value === 0 ? qsTr("Never") : value + qsTr("min") }
+    onPicked: function(value) { root.leadMinutesPicked(value) }
   }
 
   // ---- Sync status. Read-only on purpose: changing the Google account is an

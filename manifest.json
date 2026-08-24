@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tmn73.calendar",
   "name": "Calendar",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "tmn73",
   "license": "MIT",
   "description": "Your Google Calendar in the bar. Your next meeting at a glance, and one click to join it.",
@@ -20,7 +20,9 @@
     "defaults": {
       "format": "dddd HH:mm",
       "formatAlt": "d MMMM 'W'ww yyyy",
-      "verticalFormat": "HH\n-\nmm"
+      "verticalFormat": "HH\n-\nmm",
+      "agendaView": false,
+      "agendaCount": 10
     },
     "schema": [
       {
@@ -52,6 +54,23 @@
         "type": "number",
         "label": "Life expectancy",
         "defaultValue": 0
+      },
+      {
+        "key": "agendaView",
+        "type": "boolean",
+        "label": "Agenda view",
+        "defaultValue": false,
+        "description": "List what is coming up instead of the day selected in the grid."
+      },
+      {
+        "key": "agendaCount",
+        "type": "integer",
+        "label": "Events in the agenda",
+        "min": 3,
+        "max": 50,
+        "step": 1,
+        "defaultValue": 10,
+        "description": "Today is always shown in full, even when it runs over this."
       }
     ]
   }

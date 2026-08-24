@@ -100,6 +100,37 @@ Panel {
     root.selectedDayKey = String(key)
   }
 
+  // ---- The agenda. Off by default; on, it answers "what is coming up"
+  //      instead of "what is on this day" -- but only while the selection is
+  //      today. Clicking any other day in the grid still shows that day, so
+  //      the grid keeps meaning something and the way back is the way back to
+  //      today: the hero, `t`, or clicking today itself.
+  readonly property bool agendaView: setting("agendaView", false)
+  readonly property int agendaCount: Model.parseAgendaCount(setting("agendaCount", 10))
+  readonly property bool agendaActive: agendaView && selectedDayKey === todayKey
+  readonly property var agendaEvents: Model.agendaRows(visibleEventList, todayKey, agendaCount)
+
+  // The one list the rows are drawn from, whichever question is being asked.
+  readonly property var listEvents: agendaActive ? agendaEvents : selectedEvents
+
+  // Wide enough for "Tomorrow" and "Fri 29 Aug", which are the two longest
+  // things it ever holds.
+  readonly property int agendaGutterWidth: Style.space(72)
+
+  // Relative where it helps and dated where it does not. "Today" and
+  // "Tomorrow" are what you were going to work out anyway.
+  function dayGutterLabel(dateKey) {
+    if (dateKey === root.todayKey) return qsTr("Today")
+
+    var date = Model.dateFromKey(dateKey, null)
+    if (!date) return ""
+
+    var tomorrow = new Date(root.today.getFullYear(), root.today.getMonth(), root.today.getDate() + 1)
+    if (Model.keyForDate(tomorrow) === dateKey) return qsTr("Tomorrow")
+
+    return Qt.formatDate(date, "ddd d MMM")
+  }
+
   function applyEvents(raw) {
     var doc = null
     var mismatch = false
@@ -194,6 +225,14 @@ Panel {
     persistSettings({ hideDeclined: !root.hideDeclined })
   }
 
+  function toggleAgendaView() {
+    persistSettings({ agendaView: !root.agendaView })
+  }
+
+  function setAgendaCount(count) {
+    persistSettings({ agendaCount: Model.parseAgendaCount(count) })
+  }
+
   // Qt.openUrlExternally rather than the shell helper on purpose. That helper
   // runs `bash -lc`, and a meeting link is supplied by whoever sent the
   // invitation, so putting it through a shell would be a command injection.
@@ -279,6 +318,7 @@ Panel {
   function goToToday() {
     root.viewYear = today.getFullYear()
     root.viewMonth = today.getMonth()
+    root.selectedDayKey = root.todayKey
   }
 
   function moveMonth(delta) {
@@ -527,7 +567,7 @@ Panel {
               y: heroRow.y
               width: heroRow.width
               height: heroRow.height
-              enabled: !root.viewingCurrentMonth
+              enabled: !root.viewingCurrentMonth || root.selectedDayKey !== root.todayKey
               hoverEnabled: enabled
               cursorShape: Qt.PointingHandCursor
               onClicked: root.goToToday()
@@ -1035,7 +1075,14 @@ Panel {
 
             Text {
               width: parent.width
-              text: Qt.formatDate(root.selectedDate, "dddd d MMMM").toUpperCase()
+              // Counts what is actually on screen rather than what was asked
+              // for: today is never truncated, so an overflowing today shows
+              // more than the count, and a quiet fortnight shows fewer.
+              text: root.agendaActive
+                ? (root.listEvents.length > 0
+                  ? qsTr("NEXT %1").arg(root.listEvents.length)
+                  : qsTr("COMING UP"))
+                : Qt.formatDate(root.selectedDate, "dddd d MMMM").toUpperCase()
               color: Qt.darker(root.contentForeground, 1.4)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
@@ -1044,145 +1091,23 @@ Panel {
             }
 
             Repeater {
-              model: root.selectedEvents
+              model: root.listEvents
 
-              // The hover wash lives on this wrapper, never inside the Row. A
-              // Row lays out every visible child, so an anchored background
-              // added as a Row child fights the layout and ejects the content.
-              Rectangle {
-                id: eventRow
-                required property var modelData
-
-                readonly property string meetingUrl: Model.meetingUrlFor(modelData)
-                readonly property bool declined: Model.isDeclined(modelData)
-                // Only around the actual time. A Join button on next week's
-                // meeting is noise that dilutes the one that matters.
-                readonly property bool joinable: Model.isJoinableNow(modelData, root.nowTick.getTime(), root.todayKey)
-                readonly property string eventUrl: Model.eventUrlFor(modelData)
-                readonly property bool openable: eventUrl !== ""
-
+              EventRow {
                 width: gridColumn.width
-                height: eventBody.height + Style.space(2)
-                radius: Style.cornerRadius
-                color: eventHover.hovered
-                  ? Qt.rgba(root.contentForeground.r, root.contentForeground.g,
-                            root.contentForeground.b, 0.08)
-                  : "transparent"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                nowMs: root.nowTick.getTime()
+                todayKey: root.todayKey
 
-                // Only rows that can actually do something respond to a click.
-                HoverHandler {
-                  id: eventHover
-                  enabled: eventRow.openable || eventRow.joinable
-                  cursorShape: Qt.PointingHandCursor
-                }
+                gutterWidth: root.agendaActive ? root.agendaGutterWidth : 0
+                dayLabel: root.agendaActive && modelData.firstOfDay
+                  ? root.dayGutterLabel(modelData.dateKey)
+                  : ""
+                dimmed: root.agendaActive && Model.hasEnded(modelData, root.nowTick.getTime())
 
-                Rectangle {
-                  id: joinButton
-                  visible: eventRow.joinable
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  width: joinLabel.implicitWidth + Style.space(8)
-                  height: joinLabel.implicitHeight + Style.space(3)
-                  radius: height / 2
-                  color: joinHover.hovered
-                    ? Style.selectedStateColor(root.contentForeground, Color.accent)
-                    : "transparent"
-                  border.width: Style.spacing.hairline
-                  border.color: joinHover.hovered
-                    ? "transparent"
-                    : Qt.darker(root.contentForeground, 2.0)
-
-                  HoverHandler {
-                    id: joinHover
-                    cursorShape: Qt.PointingHandCursor
-                  }
-
-                  // Its own handler, declared on the button, so the grab
-                  // happens here and the row's opener does not also fire.
-                  TapHandler {
-                    gesturePolicy: TapHandler.ReleaseWithinBounds
-                    onTapped: root.openMeeting(eventRow.modelData)
-                  }
-
-                  Text {
-                    id: joinLabel
-                    anchors.centerIn: parent
-                    text: qsTr("Join")
-                    color: joinHover.hovered ? Color.background : Qt.darker(root.contentForeground, 1.4)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-
-                Row {
-                  id: eventBody
-                  anchors.left: parent.left
-                  anchors.right: eventRow.joinable ? joinButton.left : parent.right
-                  anchors.rightMargin: eventRow.joinable ? Style.space(3) : 0
-                  anchors.verticalCenter: parent.verticalCenter
-                  spacing: Style.space(4)
-
-                  // Deliberately here and not on the row: this stops at the
-                  // Join button's left edge, so the two hit areas cannot
-                  // overlap. Two TapHandlers over one point would both fire
-                  // and open two tabs.
-                  TapHandler {
-                    enabled: eventRow.openable
-                    onTapped: root.openEvent(eventRow.modelData)
-                  }
-
-                Rectangle {
-                  width: Style.space(2)
-                  height: eventLines.height
-                  radius: width / 2
-                  color: eventRow.declined
-                    ? Qt.darker(eventRow.modelData.color, 2.2)
-                    : eventRow.modelData.color
-                }
-
-                Text {
-                  width: Style.space(44)
-                  text: eventRow.modelData.allDay
-                    ? qsTr("All day")
-                    : Qt.formatDateTime(new Date(eventRow.modelData.start), "HH:mm")
-                  color: Qt.darker(root.contentForeground, eventRow.declined ? 2.2 : 1.5)
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  font.strikeout: eventRow.declined
-                }
-
-                Column {
-                  id: eventLines
-                  width: eventBody.width - Style.space(54)
-                  spacing: Style.space(1)
-
-                  Text {
-                    width: parent.width
-                    text: eventRow.modelData.title
-                    color: eventRow.declined
-                      ? Qt.darker(root.contentForeground, 2.0)
-                      : root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.strikeout: eventRow.declined
-                    elide: Text.ElideRight
-                  }
-
-                  Text {
-                    width: parent.width
-                    visible: text !== ""
-                    text: {
-                      if (eventRow.declined) return qsTr("Declined")
-                      if (Model.isOutOfOffice(eventRow.modelData)) return qsTr("Out of office")
-                      return eventRow.modelData.location
-                    }
-                    color: Qt.darker(root.contentForeground, 1.9)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                    elide: Text.ElideRight
-                  }
-                }
-                }
+                onJoinRequested: function(event) { root.openMeeting(event) }
+                onOpenRequested: function(event) { root.openEvent(event) }
               }
             }
 
@@ -1191,7 +1116,7 @@ Panel {
             Text {
               id: emptyState
               width: parent.width
-              visible: root.selectedEvents.length === 0
+              visible: root.listEvents.length === 0
               color: root.syncState === "missing" && emptyHover.hovered
                 ? Style.hoverStateColor(root.contentForeground, Color.accent)
                 : Qt.darker(root.contentForeground, 1.9)
@@ -1217,7 +1142,25 @@ Panel {
                   ? qsTr("Events file was written by a newer version. Update the plugin.")
                   : root.syncState === "stale"
                     ? qsTr("Calendar may be out of date. Check journalctl --user -u omarchy-calendar-sync")
-                    : qsTr("Nothing scheduled")
+                    : root.agendaActive
+                      ? qsTr("Nothing coming up")
+                      : qsTr("Nothing scheduled")
+            }
+
+            // A short agenda and a capped one look identical, and the first
+            // reads as a bug. How far ahead the sync actually reaches is the
+            // sync's business, so this says what is true here rather than
+            // repeating a number owned by sync/config.py.
+            Text {
+              width: parent.width
+              visible: root.agendaActive
+                && root.listEvents.length > 0
+                && root.listEvents.length < root.agendaCount
+              text: qsTr("That is everything synced")
+              color: Qt.darker(root.contentForeground, 1.9)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
 
           }
@@ -1250,6 +1193,11 @@ Panel {
             syncedAt: root.eventDoc && root.eventDoc.syncedAt
               ? Qt.formatDateTime(new Date(root.eventDoc.syncedAt), "d MMM HH:mm")
               : ""
+
+            agendaView: root.agendaView
+            agendaCount: root.agendaCount
+            onAgendaViewToggled: root.toggleAgendaView()
+            onAgendaCountPicked: function(count) { root.setAgendaCount(count) }
 
             onCalendarToggled: function(calendarId) { root.toggleCalendar(calendarId) }
             onYearProgressToggled: root.toggleYearProgress()

@@ -21,6 +21,16 @@ Rectangle {
   property real nowMs: 0
   property string todayKey: ""
 
+  // The agenda lists several days at once, so it heads the first row of each
+  // with the day it belongs to. The day list, which already has a date above
+  // it, leaves this empty and the column disappears.
+  property string dayLabel: ""
+  property real gutterWidth: 0
+
+  // Already behind you. Not strikeout: that means declined here, and an
+  // over-and-done meeting is not a refused one.
+  property bool dimmed: false
+
   signal joinRequested(var event)
   signal openRequested(var event)
 
@@ -91,6 +101,7 @@ Rectangle {
     anchors.rightMargin: eventRow.joinable ? Style.space(3) : 0
     anchors.verticalCenter: parent.verticalCenter
     spacing: Style.space(4)
+    opacity: eventRow.dimmed ? 0.45 : 1.0
 
     // Deliberately here and not on the row: this stops at the
     // Join button's left edge, so the two hit areas cannot
@@ -100,6 +111,19 @@ Rectangle {
       enabled: eventRow.openable
       onTapped: eventRow.openRequested(eventRow.modelData)
     }
+
+  // A Row lays out no invisible child and inserts no spacing for one, so a
+  // row with no day label is laid out exactly as it was before the gutter
+  // existed.
+  Text {
+    visible: eventRow.gutterWidth > 0
+    width: eventRow.gutterWidth
+    text: eventRow.dayLabel
+    color: Qt.darker(eventRow.foreground, 1.5)
+    font.family: eventRow.fontFamily
+    font.pixelSize: Style.font.bodySmall
+    elide: Text.ElideRight
+  }
 
   Rectangle {
     width: Style.space(2)
@@ -124,6 +148,7 @@ Rectangle {
   Column {
     id: eventLines
     width: eventBody.width - Style.space(54)
+      - (eventRow.gutterWidth > 0 ? eventRow.gutterWidth + Style.space(4) : 0)
     spacing: Style.space(1)
 
     Text {

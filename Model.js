@@ -563,6 +563,128 @@ function syncState(doc, nowMs, intervalSeconds) {
   return (nowMs - syncedMs) > thresholdMs ? "stale" : "ok"
 }
 
+// ---- The agenda. What the list under the grid shows when it is answering
+//      "what is coming up" rather than "what is on this day".
+
+var DEFAULT_AGENDA_COUNT = 10
+var MIN_AGENDA_COUNT = 3
+var MAX_AGENDA_COUNT = 50
+
+// A blank, malformed, or absurd count falls back to the default rather than
+// to zero: an agenda that asked for nothing would render as an empty day and
+// read as a quiet week.
+function parseAgendaCount(value) {
+  var count = Math.floor(Number(value))
+  if (!isFinite(count) || count <= 0) return DEFAULT_AGENDA_COUNT
+  if (count < MIN_AGENDA_COUNT) return MIN_AGENDA_COUNT
+  if (count > MAX_AGENDA_COUNT) return MAX_AGENDA_COUNT
+  return count
+}
+
+function startMillis(event) {
+  var ms = Date.parse(event && event.start)
+  return isNaN(ms) ? null : ms
+}
+
+// Within a day: all-day first, because they frame the day rather than sit at
+// a point in it, then by start, then by title so a tie is at least stable.
+// An unreadable start sorts last instead of throwing the whole list into an
+// order the comparator cannot defend.
+function compareEvents(a, b) {
+  var aAllDay = !!(a && a.allDay)
+  var bAllDay = !!(b && b.allDay)
+  if (aAllDay !== bAllDay) return aAllDay ? -1 : 1
+
+  if (!aAllDay) {
+    var aStart = startMillis(a)
+    var bStart = startMillis(b)
+    if (aStart === null && bStart !== null) return 1
+    if (bStart === null && aStart !== null) return -1
+    if (aStart !== null && bStart !== null && aStart !== bStart) return aStart - bStart
+  }
+
+  var aTitle = String((a && a.title) || "")
+  var bTitle = String((b && b.title) || "")
+  return aTitle < bTitle ? -1 : (aTitle > bTitle ? 1 : 0)
+}
+
+// The next `count` events, as rows for the panel to render.
+//
+// Today is never truncated. A day that is still happening is the one thing
+// this list must not be economical with, so a today holding more than the
+// requested count shows all of it and nothing else. Past that, whole days are
+// appended until the count is met -- a day is never split, because half a
+// Thursday reads as a wrong answer rather than a shortened one.
+//
+// `events` is expected to be already filtered (hidden calendars, working
+// locations, declined invitations), which is why nothing here knows those
+// exist.
+function agendaRows(events, todayKey, count) {
+  var limit = parseAgendaCount(count)
+  var today = String(todayKey || "")
+  if (!events || !events.length || !today) return []
+
+  var byDay = {}
+  var dayKeys = []
+
+  for (var i = 0; i < events.length; i++) {
+    var event = events[i]
+    var key = event && event.dateKey ? String(event.dateKey) : ""
+    // Nothing behind today. The sync keeps a week of history for the grid;
+    // the agenda only ever looks forward.
+    if (!key || key < today) continue
+    if (!byDay[key]) {
+      byDay[key] = []
+      dayKeys.push(key)
+    }
+    byDay[key].push(event)
+  }
+
+  // "yyyy-MM-dd" sorts chronologically as text, which is the whole reason the
+  // sync writes the key in that shape.
+  dayKeys.sort()
+
+  var rows = []
+  for (var d = 0; d < dayKeys.length; d++) {
+    var dayKey = dayKeys[d]
+    if (dayKey !== today && rows.length >= limit) break
+
+    var day = byDay[dayKey].slice().sort(compareEvents)
+    for (var e = 0; e < day.length; e++) {
+      // Copied rather than annotated in place: these same objects are held by
+      // the day index behind the month grid, and a flag written onto them
+      // there would leak into a view that has no idea what it means.
+      var row = {}
+      for (var field in day[e]) row[field] = day[e][field]
+      row.firstOfDay = e === 0
+      rows.push(row)
+    }
+  }
+
+  return rows
+}
+
+// Whether an event is already behind you, which the agenda draws dimmed. Kept
+// out of the row objects on purpose: this answer changes every minute, and the
+// rows only change when the events or the count do.
+function hasEnded(event, nowMs) {
+  if (!event) return false
+
+  // An all-day event has no clock window, so it is over once its day is.
+  if (event.allDay) {
+    var day = dateFromKey(event.dateKey, null)
+    if (!day) return false
+    return nowMs >= day.getTime() + DAY_MS
+  }
+
+  var startMs = Date.parse(event.start)
+  if (isNaN(startMs)) return false
+
+  var endMs = Date.parse(event.end)
+  if (isNaN(endMs) || endMs < startMs) endMs = startMs
+  return nowMs >= endMs
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     dateKey: dateKey,
@@ -611,6 +733,10 @@ if (typeof module !== "undefined") {
     isJoinableNow: isJoinableNow,
     eventsForDateKey: eventsForDateKey,
     eventColors: eventColors,
-    syncState: syncState
+    syncState: syncState,
+    parseAgendaCount: parseAgendaCount,
+    compareEvents: compareEvents,
+    agendaRows: agendaRows,
+    hasEnded: hasEnded
   }
 }

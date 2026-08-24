@@ -181,11 +181,26 @@ Click the clock, then the gear icon in the panel header.
 | Working location events | Google's work-from-home markers. Hidden by default because they are all-day rows describing no commitment |
 | Declined invitations | On lists them struck through, off hides them entirely |
 | Year and life progress | Brings back the built-in clock's bars, off by default |
+| Agenda view | Lists what is coming up instead of the day you picked in the grid, off by default |
+| Events to list | How many the agenda shows: 5, 10, 15 or 25 |
 | Bar label | How early the bar announces what is next: never, 5, 15, 30 or 60 minutes |
 | Sync | Event count, source and last sync time, for diagnosing a quiet calendar |
 
 Hiding a calendar is instant and does not change what the sync fetches, so
 bringing one back does not wait for the next run.
+
+### Agenda view
+
+Off, the list under the grid is the day you clicked. On, it is the next
+handful of events instead: all of today, then the days that follow until it has
+as many as you asked for. Today is never cut short, so a day holding more than
+the count shows all of it — and events that have already finished stay on the
+list, dimmed, rather than disappearing out from under you as the day goes on.
+
+The grid still works. Click any other day and you get that day on its own, the
+way you always did; click today, click the big date, or press `t` to come back
+to the agenda. How far ahead it can see is whatever the sync fetched, which is
+`window.futureDays` below.
 
 Sync behaviour lives in `~/.config/omarchy/calendar-sync.json`:
 

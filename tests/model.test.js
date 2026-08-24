@@ -425,3 +425,163 @@ test('commandPathFromUrl does not shorten a home-lookalike prefix', () => {
     '/home/tmn2/plugin/sync/setup'
   )
 })
+
+// ---- The agenda
+
+// Built from local Date objects rather than written with a fixed offset, so
+// every "has this ended yet" comparison means the same thing in any timezone
+// the suite runs in.
+const localIso = (y, m, d, h, min) => new Date(y, m - 1, d, h || 0, min || 0).toISOString()
+const timed = (id, dateKey, day, hour, endHour, extra) =>
+  Object.assign({
+    id: id,
+    dateKey: dateKey,
+    title: id,
+    start: localIso(2026, 8, day, hour),
+    end: localIso(2026, 8, day, endHour === undefined ? hour + 1 : endHour)
+  }, extra || {})
+
+const TODAY = '2026-08-24'
+
+const AGENDA = [
+  timed('yesterday', '2026-08-23', 23, 9),
+  timed('standup', TODAY, 24, 9),
+  timed('lunch', TODAY, 24, 12),
+  timed('retro', TODAY, 24, 16),
+  { id: 'holiday', dateKey: TODAY, title: 'holiday', allDay: true },
+  timed('dentist', '2026-08-25', 25, 10),
+  timed('review', '2026-08-25', 25, 14),
+  timed('demo', '2026-08-27', 27, 11)
+]
+
+test('agendaRows leads with all of today, all-day first', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 10)
+  assert.deepEqual(rows.slice(0, 4).map(r => r.id), ['holiday', 'standup', 'lunch', 'retro'])
+})
+
+test('agendaRows never truncates today, even past the count', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 3)
+  assert.deepEqual(rows.map(r => r.id), ['holiday', 'standup', 'lunch', 'retro'])
+})
+
+test('agendaRows pads a short today from the days that follow', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 6)
+  assert.deepEqual(rows.map(r => r.id),
+    ['holiday', 'standup', 'lunch', 'retro', 'dentist', 'review'])
+})
+
+test('agendaRows does not split a day at the count boundary', () => {
+  // Five rows requested, but the 25th carries two: it is added whole rather
+  // than half shown.
+  const rows = Model.agendaRows(AGENDA, TODAY, 5)
+  assert.equal(rows.length, 6)
+  assert.deepEqual(rows.slice(4).map(r => r.id), ['dentist', 'review'])
+})
+
+test('agendaRows stops once the count is met', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 6)
+  assert.equal(rows.some(r => r.id === 'demo'), false)
+})
+
+test('agendaRows never looks behind today', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 50)
+  assert.equal(rows.some(r => r.id === 'yesterday'), false)
+})
+
+test('agendaRows runs forward when today is empty', () => {
+  const rows = Model.agendaRows(AGENDA, '2026-08-26', 3)
+  assert.deepEqual(rows.map(r => r.id), ['demo'])
+})
+
+test('agendaRows shows what there is when the horizon runs out', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 50)
+  assert.equal(rows.length, 7)
+})
+
+test('agendaRows marks the first row of each day exactly once', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 50)
+  const firsts = rows.filter(r => r.firstOfDay).map(r => r.dateKey)
+  assert.deepEqual(firsts, [TODAY, '2026-08-25', '2026-08-27'])
+})
+
+test('agendaRows leaves the source events untouched', () => {
+  Model.agendaRows(AGENDA, TODAY, 10)
+  assert.equal(AGENDA.every(e => e.firstOfDay === undefined), true)
+})
+
+test('agendaRows skips events with no dateKey', () => {
+  const rows = Model.agendaRows([{ id: 'orphan', title: 'orphan' }], TODAY, 10)
+  assert.deepEqual(rows, [])
+})
+
+test('agendaRows tolerates empty, null, and a missing day key', () => {
+  assert.deepEqual(Model.agendaRows([], TODAY, 10), [])
+  assert.deepEqual(Model.agendaRows(null, TODAY, 10), [])
+  assert.deepEqual(Model.agendaRows(AGENDA, '', 10), [])
+})
+
+test('agendaRows treats a nonsense count as the default', () => {
+  const rows = Model.agendaRows(AGENDA, TODAY, 0)
+  assert.equal(rows.length, 7)
+})
+
+test('parseAgendaCount clamps and falls back', () => {
+  assert.equal(Model.parseAgendaCount(10), 10)
+  assert.equal(Model.parseAgendaCount(1), 3)
+  assert.equal(Model.parseAgendaCount(500), 50)
+  assert.equal(Model.parseAgendaCount(12.7), 12)
+  assert.equal(Model.parseAgendaCount(0), 10)
+  assert.equal(Model.parseAgendaCount(-4), 10)
+  assert.equal(Model.parseAgendaCount('nonsense'), 10)
+  assert.equal(Model.parseAgendaCount(null), 10)
+})
+
+test('compareEvents puts all-day events first', () => {
+  const allDay = { allDay: true, title: 'Holiday' }
+  const timedEvent = timed('standup', TODAY, 24, 9)
+  assert.ok(Model.compareEvents(allDay, timedEvent) < 0)
+  assert.ok(Model.compareEvents(timedEvent, allDay) > 0)
+})
+
+test('compareEvents falls back to the title when starts match', () => {
+  const a = timed('Beta', TODAY, 24, 9)
+  const b = timed('Alpha', TODAY, 24, 9)
+  assert.ok(Model.compareEvents(a, b) > 0)
+  assert.equal(Model.compareEvents(a, a), 0)
+})
+
+test('compareEvents sorts an unreadable start last', () => {
+  const broken = { title: 'Broken', start: 'not a date' }
+  const good = timed('standup', TODAY, 24, 9)
+  assert.ok(Model.compareEvents(broken, good) > 0)
+  assert.ok(Model.compareEvents(good, broken) < 0)
+})
+
+test('hasEnded is false before and during, true after', () => {
+  const event = timed('standup', TODAY, 24, 9, 10)
+  assert.equal(Model.hasEnded(event, new Date(2026, 7, 24, 8, 30).getTime()), false)
+  assert.equal(Model.hasEnded(event, new Date(2026, 7, 24, 9, 30).getTime()), false)
+  assert.equal(Model.hasEnded(event, new Date(2026, 7, 24, 10, 30).getTime()), true)
+})
+
+test('hasEnded treats an all-day event as over only once its day is', () => {
+  const holiday = { dateKey: TODAY, allDay: true, title: 'Holiday' }
+  assert.equal(Model.hasEnded(holiday, new Date(2026, 7, 24, 23, 59).getTime()), false)
+  assert.equal(Model.hasEnded(holiday, new Date(2026, 7, 25, 0, 1).getTime()), true)
+})
+
+test('hasEnded falls back to the start when the end is missing or backwards', () => {
+  const noEnd = { title: 'Ping', start: localIso(2026, 8, 24, 9) }
+  const backwards = { title: 'Ping', start: localIso(2026, 8, 24, 9), end: localIso(2026, 8, 24, 8) }
+  const before = new Date(2026, 7, 24, 8, 30).getTime()
+  const after = new Date(2026, 7, 24, 9, 30).getTime()
+  assert.equal(Model.hasEnded(noEnd, before), false)
+  assert.equal(Model.hasEnded(noEnd, after), true)
+  assert.equal(Model.hasEnded(backwards, after), true)
+})
+
+test('hasEnded never claims an unreadable event has ended', () => {
+  assert.equal(Model.hasEnded({ title: 'Broken', start: 'nope' }, Date.now()), false)
+  assert.equal(Model.hasEnded({ allDay: true, dateKey: 'nope' }, Date.now()), false)
+  assert.equal(Model.hasEnded(null, Date.now()), false)
+})

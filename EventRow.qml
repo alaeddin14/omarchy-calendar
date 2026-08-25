@@ -123,7 +123,7 @@ Rectangle {
     visible: eventRow.gutterWidth > 0
     width: eventRow.gutterWidth
     text: eventRow.dayLabel
-    color: Qt.darker(eventRow.foreground, 1.5)
+    color: eventRow.foreground
     font.family: eventRow.fontFamily
     font.pixelSize: Style.font.bodySmall
     elide: Text.ElideRight
@@ -183,7 +183,7 @@ Rectangle {
         ? Qt.darker(eventRow.foreground, 2.0)
         : eventRow.foreground
       font.family: eventRow.fontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: Style.font.title
       font.strikeout: eventRow.declined
       elide: Text.ElideRight
     }

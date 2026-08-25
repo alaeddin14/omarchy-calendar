@@ -895,7 +895,7 @@ Panel {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     text: root.weekdayLabel(modelData)
-                    color: Qt.darker(root.contentForeground, 1.5)
+                    color: root.contentForeground
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                     font.letterSpacing: 1

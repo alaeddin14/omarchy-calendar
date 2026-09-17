@@ -62,6 +62,34 @@ class TestWriteAtomic(unittest.TestCase):
 
 
 class TestRun(unittest.TestCase):
+    def test_launch_failure_preserves_cache_without_auth_advice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "events.json"
+            previous = '{"version": 1, "events": ["previous"]}'
+            out.write_text(previous)
+            client = gws.Gws(
+                "/tmp/profile",
+                runner=lambda argv, env: (1, "", "mise ERROR No version is set for shim: gws"),
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = cli.run(client, config.DEFAULTS, NOW, out, BOGOTA)
+            self.assertEqual(code, 1)
+            self.assertEqual(out.read_text(), previous)
+            self.assertIn("No version is set", stderr.getvalue())
+            self.assertNotIn("auth login", stderr.getvalue())
+
+    def test_auth_failure_includes_login_advice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = cli.run(
+                    FakeGws(raises=gws.GwsAuthError("401: invalid_grant")),
+                    config.DEFAULTS, NOW, Path(tmp) / "events.json", BOGOTA,
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("auth login", stderr.getvalue())
+
     def test_writes_a_valid_document(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "calendar-events.json"

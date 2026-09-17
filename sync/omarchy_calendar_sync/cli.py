@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import config as config_module
 from . import contract, normalize
-from .gws import Gws, GwsError
+from .gws import Gws, GwsAuthError, GwsError
 
 EXIT_OK = 0
 EXIT_SYNC_FAILED = 1
@@ -144,12 +144,13 @@ def run(client, cfg, now, out_path, local_tz):
         source = "gws/" + ".".join(str(part) for part in client.version())
     except GwsError as error:
         print(f"sync failed: {error}", file=sys.stderr)
-        print(
-            "if this is an auth error, run: "
-            "GOOGLE_WORKSPACE_CLI_CONFIG_DIR=" + str(cfg["profile"]) + " "
-            "gws auth login --scopes https://www.googleapis.com/auth/calendar.readonly",
-            file=sys.stderr,
-        )
+        if isinstance(error, GwsAuthError):
+            print(
+                "authenticate with: "
+                "GOOGLE_WORKSPACE_CLI_CONFIG_DIR=" + str(cfg["profile"]) + " "
+                "gws auth login --scopes https://www.googleapis.com/auth/calendar.readonly",
+                file=sys.stderr,
+            )
         return EXIT_SYNC_FAILED
 
     rows.sort(key=lambda row: (row["dateKey"], row["start"], row["title"]))

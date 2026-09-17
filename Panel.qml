@@ -88,7 +88,7 @@ Panel {
     Qt.resolvedUrl("sync/setup"), Quickshell.env("HOME") || "")
   readonly property string syncState: eventVersionMismatch
     ? "version"
-    : Model.syncState(eventDoc, Date.now(), syncIntervalSeconds)
+    : Model.syncState(eventDoc, nowTick.getTime(), syncIntervalSeconds)
 
   // The day whose agenda is listed under the grid. The upstream clock had no
   // cursor at all, so this is the one place the fork departs from it.
@@ -1092,6 +1092,17 @@ Panel {
               font.bold: true
             }
 
+            Text {
+              width: parent.width
+              visible: root.syncState === "stale"
+              text: qsTr("Calendar is out of date — events may be missing. Last synced: %1. Check journalctl --user -u omarchy-calendar-sync")
+                .arg(root.eventDoc ? Qt.formatDateTime(new Date(root.eventDoc.syncedAt), "ddd d MMM HH:mm") : "")
+              color: Color.accent
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
             Repeater {
               model: root.listEvents
 
@@ -1118,7 +1129,7 @@ Panel {
             Text {
               id: emptyState
               width: parent.width
-              visible: root.listEvents.length === 0
+              visible: root.listEvents.length === 0 && root.syncState !== "stale"
               color: root.syncState === "missing" && emptyHover.hovered
                 ? Style.hoverStateColor(root.contentForeground, Color.accent)
                 : Qt.darker(root.contentForeground, 1.9)
@@ -1142,11 +1153,9 @@ Panel {
                   : qsTr("No calendar synced yet. Click to copy, then run:\n%1").arg(root.setupCommand))
                 : root.syncState === "version"
                   ? qsTr("Events file was written by a newer version. Update the plugin.")
-                  : root.syncState === "stale"
-                    ? qsTr("Calendar may be out of date. Check journalctl --user -u omarchy-calendar-sync")
-                    : root.agendaActive
-                      ? qsTr("Nothing coming up")
-                      : qsTr("Nothing scheduled")
+                  : root.agendaActive
+                    ? qsTr("Nothing coming up")
+                    : qsTr("Nothing scheduled")
             }
 
             // A short agenda and a capped one look identical, and the first
@@ -1156,6 +1165,7 @@ Panel {
             Text {
               width: parent.width
               visible: root.agendaActive
+                && root.syncState === "ok"
                 && root.listEvents.length > 0
                 && root.listEvents.length < root.agendaCount
               text: qsTr("That is everything synced")

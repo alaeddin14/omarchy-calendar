@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Bound the whole fetch as well as each gws call, allowing the next timer tick
+# to retry instead of leaving a stuck oneshot running indefinitely.
+TimeoutStartSec=4min
 # A user service starts with a minimal PATH, so a gws installed by bun,
 # cargo or pipx would be invisible. sync/setup writes an absolute path
 # into calendar-sync.json; this list is the fallback for everyone else.

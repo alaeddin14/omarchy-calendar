@@ -233,11 +233,19 @@ systemctl --user list-timers omarchy-calendar-sync.timer
 | `gws is not installed or not on PATH` from the timer, but it works in your terminal | `gwsPath` is not absolute. `sync/setup` writes it for you |
 | The panel says "No calendar synced yet" | The events file does not exist. The sync has never completed |
 | The panel says the calendar may be out of date | The file exists but `syncedAt` is old. Check the journal above |
+| `gws --version exited` with a mise or Node error | The launcher cannot run in the background service. Prefer the native Google Workspace CLI release over the npm wrapper; test the configured `gwsPath` from your home directory with `PATH=/usr/local/bin:/usr/bin:/bin` |
 | An event shows up twice | Two of your calendars both carry it. Hide one in settings. The sync already drops exact duplicates by iCalUID and start time |
 | `The project ID you specified is already in use` during setup | Fixed in 0.1.1. Google Cloud project ids are unique across all of Google, and older versions hardcoded one. Update the plugin, or pass your own: `PROJECT_ID=something-unique sync/setup` |
 | Clicking an event opens your calendar but not the event | The link resolves only for the Google account the sync authenticated as. If your browser opens it in a profile signed into a different account, Google falls back to the calendar root. Route `google.com/calendar` to the profile holding that account |
 | The Join button never appears | It only shows from 15 minutes before the start until 15 minutes after the end, and only when the event has a video link |
 | Events are off by a day | Report it. Timezone handling resolves a named IANA zone precisely to avoid this, and there is a regression test for daylight saving transitions |
+
+The agenda warns whenever the last sync is over 20 minutes old, including when
+cached events are still listed. Staleness is rechecked every minute. Each `gws`
+command has a 45-second timeout and the service has a four-minute overall limit,
+so a stuck fetch can be retried on the next timer tick. A failed fetch preserves
+the previous event file. After updating the service template, reinstall it in
+`~/.config/systemd/user/` and run `systemctl --user daemon-reload`.
 
 ## Uninstall
 
@@ -257,7 +265,7 @@ from your Google Cloud console to revoke properly.
 ## Development
 
 ```bash
-cd sync && PYTHONPATH=. python3 -m unittest discover -s ../tests -t .. -v
+PYTHONPATH=sync uv run --no-project python -m unittest discover -s tests -t . -v
 node --test tests/model.test.js
 ```
 

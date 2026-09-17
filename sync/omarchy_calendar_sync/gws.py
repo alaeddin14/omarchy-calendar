@@ -12,6 +12,7 @@ import subprocess
 MINIMUM_VERSION = (0, 13, 2)
 FALLBACK_COLOR = "#9e9e9e"
 MAX_PAGES = 50
+COMMAND_TIMEOUT_SECONDS = 45
 
 _VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
@@ -37,7 +38,10 @@ class GwsApiError(GwsError):
 
 
 def _subprocess_runner(argv, env):
-    completed = subprocess.run(argv, env=env, capture_output=True, text=True)
+    completed = subprocess.run(
+        argv, env=env, capture_output=True, text=True,
+        timeout=COMMAND_TIMEOUT_SECONDS,
+    )
     return completed.returncode, completed.stdout, completed.stderr
 
 
@@ -58,10 +62,17 @@ class Gws:
                 "A systemd user service does not inherit your shell PATH, so set "
                 "gwsPath to an absolute path in calendar-sync.json."
             ) from error
+        except subprocess.TimeoutExpired as error:
+            raise GwsApiError(
+                f"gws timed out after {COMMAND_TIMEOUT_SECONDS}s"
+            ) from error
         return code, stdout, stderr
 
     def version(self):
-        _, stdout, _ = self._run(["--version"])
+        code, stdout, stderr = self._run(["--version"])
+        if code != 0:
+            excerpt = stderr.strip()[:500] or stdout.strip()[:500] or "no diagnostic output"
+            raise GwsApiError(f"gws --version exited with code {code}: {excerpt}")
         match = _VERSION.search(stdout)
         if not match:
             raise GwsApiError(f"cannot parse gws version from {stdout!r}")
@@ -114,20 +125,18 @@ class Gws:
     def _json(self, args):
         """Run gws and parse stdout.
 
-        stderr carries keyring noise on success, so it is never parsed as
-        data. On a nonzero exit code, stdout may not even be JSON, so stderr
-        is quoted in the raised error instead since that is the only place
-        useful diagnostic detail can come from.
+        stderr carries keyring noise on success. Google API errors can be
+        JSON on stdout even with a nonzero exit status; classify those before
+        falling back to the launcher's stderr for non-JSON failures.
         """
         exit_code, stdout, stderr = self._run(args)
-
-        if exit_code != 0:
-            excerpt = stderr.strip()[:200] or "no stderr output"
-            raise GwsApiError(f"gws exited with code {exit_code}: {excerpt}")
 
         try:
             payload = json.loads(stdout)
         except json.JSONDecodeError as error:
+            if exit_code != 0:
+                excerpt = stderr.strip()[:500] or stdout.strip()[:500] or "no diagnostic output"
+                raise GwsApiError(f"gws exited with code {exit_code}: {excerpt}") from error
             raise GwsApiError(f"gws returned unparseable output: {error}") from error
 
         if isinstance(payload, dict) and "error" in payload:
@@ -139,5 +148,9 @@ class Gws:
             if error_code in (401, 403):
                 raise GwsAuthError(f"{error_code}: {message}")
             raise GwsApiError(f"{error_code}: {message}")
+
+        if exit_code != 0:
+            excerpt = stderr.strip()[:500] or "no diagnostic output"
+            raise GwsApiError(f"gws exited with code {exit_code}: {excerpt}")
 
         return payload

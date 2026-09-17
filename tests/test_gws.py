@@ -1,6 +1,8 @@
 import json
+import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omarchy_calendar_sync import gws
 
@@ -45,6 +47,22 @@ class SequentialFakeRunner:
 
 
 class TestVersion(unittest.TestCase):
+    def test_broken_shim_reports_launch_error_not_parse_error(self):
+        runner = FakeRunner({"--version": (1, "", "mise ERROR No version is set for shim: gws")})
+        with self.assertRaisesRegex(gws.GwsApiError, "No version is set for shim: gws"):
+            gws.Gws("/tmp/profile", runner=runner).check()
+
+    def test_failed_command_cannot_pass_with_version_in_stdout(self):
+        runner = FakeRunner({"--version": (1, "gws 0.22.5", "launch failed")})
+        with self.assertRaisesRegex(gws.GwsApiError, "launch failed"):
+            gws.Gws("/tmp/profile", runner=runner).check()
+
+    def test_subprocess_is_bounded_and_timeout_is_actionable(self):
+        with patch.object(gws.subprocess, "run", side_effect=subprocess.TimeoutExpired("gws", 45)) as run:
+            with self.assertRaisesRegex(gws.GwsApiError, "timed out after 45s"):
+                gws.Gws("/tmp/profile").check()
+        self.assertEqual(run.call_args.kwargs["timeout"], 45)
+
     def test_parses_version_line(self):
         client = gws.Gws("/tmp/profile", runner=FakeRunner({"--version": (0, "gws 0.13.2\nnote\n", "")}))
         self.assertEqual(client.version(), (0, 13, 2))
@@ -159,6 +177,17 @@ class TestEventsPagination(unittest.TestCase):
 
 
 class TestErrors(unittest.TestCase):
+    def test_nonzero_json_auth_error_still_identifies_auth_failure(self):
+        body = json.dumps({"error": {"code": 401, "message": "invalid_grant"}})
+        client = gws.Gws("/tmp/profile", runner=FakeRunner({"events": (1, body, "")}))
+        with self.assertRaisesRegex(gws.GwsAuthError, "invalid_grant"):
+            client.events("a", "MIN", "MAX")
+
+    def test_nonzero_exit_cannot_be_mistaken_for_empty_success(self):
+        client = gws.Gws("/tmp/profile", runner=FakeRunner({"events": (1, "{}", "failed")}))
+        with self.assertRaisesRegex(gws.GwsApiError, "failed"):
+            client.events("a", "MIN", "MAX")
+
     def test_401_raises_auth_error(self):
         body = json.dumps({"error": {"code": 401, "message": "invalid_grant"}})
         client = gws.Gws("/tmp/profile", runner=FakeRunner({"events": (0, body, "")}))
